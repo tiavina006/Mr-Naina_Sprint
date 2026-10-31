@@ -6,6 +6,7 @@ com\sprint\framework\annotation\APIREST.class
 com\sprint\framework\json\JsonSerializer.class
 com\sprint\framework\annotation\GetMapping.class
 com\sprint\framework\mapping\UrlMethode.class
+com\sprint\framework\exception\BindingException.class
 com\sprint\framework\mapping\HttpMethod.class
 com\sprint\framework\FrontController.class
 com\sprint\framework\util\ScanAnnotation.class
