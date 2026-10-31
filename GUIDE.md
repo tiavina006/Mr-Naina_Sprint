@@ -122,3 +122,18 @@ public ModelAndView enseigner(MaSession session) {
 - Le registre est stocke dans le `ServletContext` (`ControllerRegistry.ATTRIBUTE`) et partage entre les requetes.
 - `FrontController.init()` verifie d'abord si le registre existe dans le contexte ; sinon il le cree et le publie.
 - `ControllerRegistry.getOrCreate(Class<?>)` verifie si l'instance existe deja avant de l'instancier.
+- Toutes les methodes d'un meme controleur partagent donc la meme instance : `GET /etudiant/methode1` puis `GET /etudiant/methode2` reutilisent le meme `EtudiantController`.
+- Le registre est synchronise : deux requetes simultanees ne peuvent pas creer deux instances du meme controleur.
+
+```java
+@Controller
+public class EtudiantController {
+    private int appels;
+
+    @GetMapping("/etudiant/methode1")
+    public ModelAndView methode1() {
+        appels++;
+        return new ModelAndView("/WEB-INF/views/employes.jsp");
+    }
+}
+```

@@ -262,3 +262,19 @@ Realisation :
 - `FrontController` : attribut `controllerRegistry`, initialisation dans `init()`, acces paresseux, reutilisation des instances
 - `FrontControllerListener` : publication du registre partage dans le `ServletContext`
 - Tests : `ControllerSingletonTest` (meme instance pour une classe, instances distinctes par classe, registre partage du `FrontController`) et `AuthorizationTest` (role `PROF`, role `ADMIN`, role inconnu refuse pour `@Authorized(roles = {"PROF", "ADMIN"})`)
+
+
+### Sprint 11 : Instance unique du controleur
+Objectif : Ne plus creer une nouvelle instance de controleur a chaque requete ; toutes les methodes d'un meme controleur partagent la meme instance.
+
+Fonctionnement :
+- Avant, `ProcessRequest` faisait `mapping.getControllerClass().newInstance()` a chaque appel : `methode1` puis `methode2` creaient deux instances differentes.
+- Desormais, `ControllerRegistry.getOrCreate(Class<?>)` cherche l'instance dans sa `Map` avant de la creer.
+- La premiere requete sur `EtudiantController` cree l'instance et la memorise ; les appels suivants (`methode1`, `methode2`, ...) reutilisent cette meme instance.
+- Le registre est unique pour toute l'application : il est stocke dans le `ServletContext` et partage par toutes les requetes du `FrontController`.
+- L'instance est creee apres le controle d'authentification/autorisation, donc une action refusee ne cree pas de controleur.
+- `ControllerRegistry` est synchronise pour eviter la creation de deux instances lors de requetes simultanees.
+
+Realisation :
+- `test-app` : ajout de `EtudiantController` avec `/etudiant/methode1` et `/etudiant/methode2` (compteur `appels` pour visualiser la reutilisation)
+- Tests : `EtudiantControllerTest` (meme instance pour les deux methodes, compteur partage, une seule entree dans le registre, les deux URLs sont mappees)

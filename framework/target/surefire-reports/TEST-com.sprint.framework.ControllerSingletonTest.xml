@@ -15,7 +15,7 @@
     <property name="sun.java.launcher" value="SUN_STANDARD"/>
     <property name="user.country" value="FR"/>
     <property name="sun.boot.library.path" value="C:\Program Files\Java\jdk-23\bin"/>
-    <property name="sun.java.command" value="C:\Users\TUF\AppData\Local\Temp\surefire11825675653864953019\surefirebooter-20261031172921552_3.jar C:\Users\TUF\AppData\Local\Temp\surefire11825675653864953019 2026-10-31T17-29-21_392-jvmRun1 surefire-20261031172921552_1tmp surefire_0-20261031172921552_2tmp"/>
+    <property name="sun.java.command" value="C:\Users\TUF\AppData\Local\Temp\surefire17791416272697063836\surefirebooter-20261031182526322_3.jar C:\Users\TUF\AppData\Local\Temp\surefire17791416272697063836 2026-10-31T18-25-26_193-jvmRun1 surefire-20261031182526322_1tmp surefire_0-20261031182526322_2tmp"/>
     <property name="jdk.debug" value="release"/>
     <property name="surefire.test.class.path" value="D:\Sprint_Mr_Naina\framework\target\test-classes;D:\Sprint_Mr_Naina\framework\target\classes;C:\Users\TUF\.m2\repository\javax\servlet\javax.servlet-api\4.0.1\javax.servlet-api-4.0.1.jar;C:\Users\TUF\.m2\repository\junit\junit\4.13.2\junit-4.13.2.jar;C:\Users\TUF\.m2\repository\org\hamcrest\hamcrest-core\1.3\hamcrest-core-1.3.jar;"/>
     <property name="sun.cpu.endian" value="little"/>
@@ -30,7 +30,7 @@
     <property name="line.separator" value="&#10;"/>
     <property name="java.vm.specification.vendor" value="Oracle Corporation"/>
     <property name="java.specification.name" value="Java Platform API Specification"/>
-    <property name="surefire.real.class.path" value="C:\Users\TUF\AppData\Local\Temp\surefire11825675653864953019\surefirebooter-20261031172921552_3.jar"/>
+    <property name="surefire.real.class.path" value="C:\Users\TUF\AppData\Local\Temp\surefire17791416272697063836\surefirebooter-20261031182526322_3.jar"/>
     <property name="user.script" value=""/>
     <property name="sun.management.compiler" value="HotSpot 64-Bit Tiered Compilers"/>
     <property name="java.runtime.version" value="23.0.2+7-58"/>
