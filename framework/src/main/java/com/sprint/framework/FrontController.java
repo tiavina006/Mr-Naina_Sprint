@@ -5,15 +5,26 @@ import com.sprint.framework.mapping.HttpMethod;
 import com.sprint.framework.mapping.MappingRegistry;
 import com.sprint.framework.annotation.RequestParam;
 import com.sprint.framework.annotation.APIREST;
+import com.sprint.framework.annotation.Authenticated;
+import com.sprint.framework.annotation.Authorized;
+import com.sprint.framework.exception.AccessDeniedException;
 import com.sprint.framework.exception.BindingException;
+import com.sprint.framework.file.MaFile;
 import com.sprint.framework.json.JsonSerializer;
+import com.sprint.framework.mvc.ControllerRegistry;
 import com.sprint.framework.mvc.ModelAndView;
+import com.sprint.framework.security.Authorization;
+import com.sprint.framework.session.MaSession;
+import com.sprint.framework.session.SessionManager;
 
 import javax.servlet.ServletException;
+import javax.servlet.annotation.MultipartConfig;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.Part;
 import java.io.IOException;
+import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -21,13 +32,29 @@ import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
 import java.util.Map;
 
+@MultipartConfig
 public class FrontController extends HttpServlet {
     private final MappingRegistry registry = new MappingRegistry();
     private String controllerPackage;
+    private String authSessionKey = Authorization.DEFAULT_SESSION_KEY;
+    private SessionManager sessionManager;
+    private ControllerRegistry controllerRegistry;
 
     @Override
     public void init() throws ServletException {
         controllerPackage = getInitParameter("controller-package");
+        authSessionKey = resolveAuthSessionKey();
+        Object sharedSessionManager = getServletContext().getAttribute(SessionManager.ATTRIBUTE);
+        if (sharedSessionManager instanceof SessionManager) {
+            sessionManager = (SessionManager) sharedSessionManager;
+        }
+        Object sharedControllers = getServletContext().getAttribute(ControllerRegistry.ATTRIBUTE);
+        if (sharedControllers instanceof ControllerRegistry) {
+            controllerRegistry = (ControllerRegistry) sharedControllers;
+        } else {
+            controllerRegistry = new ControllerRegistry();
+            getServletContext().setAttribute(ControllerRegistry.ATTRIBUTE, controllerRegistry);
+        }
         Object sharedMappings = getServletContext().getAttribute(FrontControllerListener.MAPPINGS_ATTRIBUTE);
         if (sharedMappings instanceof Map) {
             @SuppressWarnings("unchecked")
@@ -40,6 +67,19 @@ public class FrontController extends HttpServlet {
             throw new ServletException("L'init-param controller-package est obligatoire");
         }
         registry.scan(controllerPackage);
+    }
+
+    private String resolveAuthSessionKey() {
+        Object sharedKey = getServletContext().getAttribute(Authorization.SESSION_KEY_ATTRIBUTE);
+        if (sharedKey instanceof String && !((String) sharedKey).trim().isEmpty()) {
+            return ((String) sharedKey).trim();
+        }
+        String key = getInitParameter(Authorization.SESSION_KEY_INIT_PARAM);
+        if (key == null || key.trim().isEmpty()) {
+            key = getServletContext().getInitParameter(Authorization.SESSION_KEY_INIT_PARAM);
+        }
+        return key == null || key.trim().isEmpty()
+                ? Authorization.DEFAULT_SESSION_KEY : key.trim();
     }
 
     @Override
@@ -76,9 +116,11 @@ public class FrontController extends HttpServlet {
                 response.sendError(HttpServletResponse.SC_NOT_FOUND, "Aucun mapping " + httpMethod + " pour " + url);
             return;
         }
+        Method action = mapping.getMethod();
+        Class<?> controllerClass = mapping.getControllerClass();
         try {
-            Object controller = mapping.getControllerClass().newInstance();
-            Method action = mapping.getMethod();
+            authorize(action, controllerClass, request);
+            Object controller = controllerRegistry().getOrCreate(controllerClass);
             Object result = invoke(action, controller, request);
             APIREST apiRest = action.getAnnotation(APIREST.class);
             if (apiRest != null) {
@@ -86,9 +128,41 @@ public class FrontController extends HttpServlet {
             } else {
                 dispatchView(request, response, result);
             }
+        } catch (AccessDeniedException exception) {
+            int status = exception.isAuthenticated()
+                    ? HttpServletResponse.SC_FORBIDDEN
+                    : HttpServletResponse.SC_UNAUTHORIZED;
+            response.sendError(status, exception.getMessage());
         } catch (ReflectiveOperationException exception) {
             throw new ServletException("Erreur lors de l'invocation de " + url, exception);
         }
+    }
+
+    void authorize(Method action, Class<?> controllerClass, HttpServletRequest request) {
+        Authenticated authenticated = action.getAnnotation(Authenticated.class);
+        if (authenticated == null) {
+            authenticated = controllerClass.getAnnotation(Authenticated.class);
+        }
+        Authorized authorized = action.getAnnotation(Authorized.class);
+        if (authorized == null) {
+            authorized = controllerClass.getAnnotation(Authorized.class);
+        }
+        if (authenticated == null && authorized == null) {
+            return;
+        }
+        MaSession session = sessionManager().getOrCreate(request);
+        if (authenticated != null) {
+            Authorization.checkAuthenticated(session, authSessionKey);
+        }
+        if (authorized != null) {
+            Authorization.check(session, authorized, authSessionKey);
+        }
+        Object principal = session.get(authSessionKey);
+        if (principal == null) {
+            principal = Authorization.getPrincipal(session);
+        }
+        request.setAttribute(Authorization.AUTHENTICATED_REQUEST_ATTRIBUTE, Boolean.TRUE);
+        request.setAttribute(Authorization.PRINCIPAL_REQUEST_ATTRIBUTE, principal);
     }
 
     private void dispatchView(HttpServletRequest request, HttpServletResponse response, Object result)
@@ -126,13 +200,21 @@ public class FrontController extends HttpServlet {
                 arguments[index] = request;
                 continue;
             }
+            RequestParam requestParam = parameters[index].getAnnotation(RequestParam.class);
+            String parameterName = requestParam != null ? requestParam.value() : parameters[index].getName();
+            if (parameterType.equals(MaSession.class)) {
+                arguments[index] = sessionManager().getOrCreate(request);
+                continue;
+            }
+            if (parameterType.equals(MaFile.class)) {
+                arguments[index] = bindMaFile(parameterName, request);
+                continue;
+            }
             if (!isSimpleType(parameterType)) {
                 arguments[index] = bindObject(parameterType, request);
                 continue;
             }
             arguments[index] = defaultValue(parameterType);
-            RequestParam requestParam = parameters[index].getAnnotation(RequestParam.class);
-            String parameterName = requestParam != null ? requestParam.value() : parameters[index].getName();
             String value = request.getParameter(parameterName);
             if (value == null) {
                 if (requestParam != null && requestParam.required()) {
@@ -143,6 +225,55 @@ public class FrontController extends HttpServlet {
             arguments[index] = convert(value, parameterType, parameterName);
         }
         return method.invoke(controller, arguments);
+    }
+
+    private MaFile bindMaFile(String parameterName, HttpServletRequest request) {
+        try {
+            Part part = request.getPart(parameterName);
+            if (part == null || part.getSize() == 0) {
+                throw new BindingException("Fichier obligatoire absent: " + parameterName);
+            }
+            String fileName = part.getSubmittedFileName();
+            if (fileName == null || fileName.isEmpty()) {
+                fileName = parameterName;
+            }
+            String uploadPath = getServletConfig() != null
+                    ? getServletContext().getInitParameter("upload.path") : null;
+            try (InputStream input = part.getInputStream()) {
+                return new MaFile(fileName, part.getContentType(), MaFile.readAllBytes(input), uploadPath);
+            }
+        } catch (IOException | ServletException exception) {
+            throw new BindingException("Impossible de lire le fichier " + parameterName, exception);
+        }
+    }
+
+    ControllerRegistry controllerRegistry() {
+        if (controllerRegistry == null && getServletConfig() != null) {
+            Object shared = getServletContext().getAttribute(ControllerRegistry.ATTRIBUTE);
+            if (shared instanceof ControllerRegistry) {
+                controllerRegistry = (ControllerRegistry) shared;
+            } else {
+                controllerRegistry = new ControllerRegistry();
+                getServletContext().setAttribute(ControllerRegistry.ATTRIBUTE, controllerRegistry);
+            }
+        }
+        if (controllerRegistry == null) {
+            controllerRegistry = new ControllerRegistry();
+        }
+        return controllerRegistry;
+    }
+
+    SessionManager sessionManager() {
+        if (sessionManager == null && getServletConfig() != null) {
+            Object shared = getServletContext().getAttribute(SessionManager.ATTRIBUTE);
+            if (shared instanceof SessionManager) {
+                sessionManager = (SessionManager) shared;
+            }
+        }
+        if (sessionManager == null) {
+            sessionManager = new SessionManager(SessionManager.DEFAULT_TIMEOUT_MS);
+        }
+        return sessionManager;
     }
 
     static Object bindObject(Class<?> type, HttpServletRequest request) throws ReflectiveOperationException {
@@ -283,5 +414,10 @@ public class FrontController extends HttpServlet {
 
     public MappingRegistry getRegistry() {
         return registry;
+    }
+
+    void setAuthSessionKey(String authSessionKey) {
+        this.authSessionKey = authSessionKey == null || authSessionKey.trim().isEmpty()
+                ? Authorization.DEFAULT_SESSION_KEY : authSessionKey.trim();
     }
 }

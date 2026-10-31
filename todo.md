@@ -139,6 +139,126 @@ Realisation :
 - Tests : `FrontControllerBindingTest` (remplissage objet, setter vs champ direct, valeurs par défaut, champ non simple ignoré, absence de constructeur sans argument)
 
 
-### Upload ana fichier    
-### Gestion de Session
-### Authaurisation
+### Sprint 8 : Upload de fichier
+Objectif : Transmettre un fichier depuis un formulaire HTML/JSP vers une méthode d'action du contrôleur.
+
+Principe :
+- Le formulaire doit utiliser `enctype="multipart/form-data"` pour envoyer le fichier avec les autres données
+- Le framework doit savoir qu'un fichier accompagne la requête et le rendre disponible dans la méthode d'action
+- Ce qui est disponible dans l'action : un objet `MaFile` (et non un simple tableau de bytes nu)
+
+Classe `MaFile` (`com.sprint.framework.file`) :
+- `fileName` : nom original du fichier
+- `fileType` : type / extension (content-type)
+- `data` : tableau de bytes
+- `size` : taille en octets
+- Instanciée par le framework à partir du `Part` de la requête
+- `save()` : enregistre dans le répertoire configuré (`upload.path`)
+- `saveTo(directory)` : enregistre dans un répertoire explicite
+- Le développeur choisit ensuite la destination : BDD ou système de fichiers
+
+Configuration :
+- `@MultipartConfig` sur `FrontController` (support natif Servlet 3.0, `request.getPart`)
+- Chemin de stockage configurable via le context-param `upload.path` (jamais en dur dans le code)
+
+Realisation :
+- Creation de `com.sprint.framework.file.MaFile`
+- `FrontController.bindMaFile` : lecture du `Part`, nom, content-type, bytes ; `BindingException` si fichier absent
+- `FrontController.invoke` : detection du type `MaFile` et injection de l'objet
+- `web.xml` : context-param `upload.path`
+- Vue `formulaireUpload.jsp` + action `GET /employe/formulaire-upload` et `POST /employe/upload` (`String nom, MaFile fichier`)
+- Tests : `MaFileTest` (getters, `saveTo`, `save` configure, absence de repertoire), binding `MaFile` dans `FrontControllerBindingTest`
+
+
+### Sprint 9 : Gestion de Session
+Objectif : Rendre une session propre au framework disponible dans la méthode d'action, sans exposer `HttpSession` au développeur.
+
+Classe `MaSession` (`com.sprint.framework.session`) :
+- `id` (identifiant client)
+- `attributes` : `Map<String, Object>`
+- `get(key)` / `set(key, value)` / `remove(key)` / `invalidate()` (creation, modification, suppression)
+- `lastAccessTime` + `touch()` + `isExpired(timeoutMs)` pour l'expiration
+
+Gestion des sessions :
+- `SessionManager` maintient un `Map<String, MaSession>` : une instance par client
+- Le client est identifié par l'ID de l'`HttpSession` (utilisé en interne uniquement)
+- `getOrCreate(request)` : retrouve ou crée la session du client
+- Nettoyage paresseux (`cleanExpired`) a chaque requete pour eviter les fuites memoire
+- Timeout configurable via le context-param `session.timeout` (en secondes, defaut 1800)
+
+Realisation :
+- Creation de `com.sprint.framework.session.MaSession` et `SessionManager`
+- `FrontControllerListener` : instancie et stocke le `SessionManager` dans le `ServletContext`, lit `session.timeout`
+- `FrontController` : detection du type `MaSession` et injection dans la methode d'action
+- `web.xml` : context-param `session.timeout`
+- Vues `login.jsp`, `profil.jsp` + actions `GET/POST /employe/login` et `GET /employe/profil` (`MaSession session`)
+- Tests : `MaSessionTest` (get/set/remove/invalidate/expiration), `SessionManagerTest` (meme client = meme instance, clients differents, nettoyage lazy, suppression), injection `MaSession` dans `FrontControllerBindingTest`
+
+
+### Sprint 10 : Authentification et autorisation
+Objectif : Verifier l'authentification puis les droits d'acces avant d'executer une methode d'action du controleur.
+
+Principe :
+- Une methode (ou une classe de controleur) peut exiger une authentification, un role ou une permission.
+- Le framework controle ces droits avant `Method.invoke` ; l'action n'est jamais appelee si l'acces est refuse.
+- Le developpeur n'utilise que `MaSession`, `@Authenticated` et `@Authorized`, jamais `HttpSession`.
+
+Authentification :
+- `@Authenticated` sur une methode (ou une classe) exige un utilisateur connecte.
+- La variable de session qui indique la connexion est configuree par l'init-param/context-param `auth.session-key` declare dans `web.xml`.
+- `FrontController.init()` lit cette cle depuis le `ServletContext` (defaut `authorization.principal`).
+- Apres verification, `authenticated=true` et `principal` sont exposes en attributs de requete avec `setAttribute`.
+- `Authorization.checkAuthenticated(session, cle)` leve `AccessDeniedException` (HTTP 401) si la variable est absente.
+
+Annotation `@Authorized` (`com.sprint.framework.annotation`) :
+- cible `METHOD` et `TYPE`, retention `RUNTIME`
+- `roles()` : liste de roles exiges (au moins un role doit correspondre)
+- `permissions()` : liste de permissions exigees (toutes doivent etre presentes)
+- sans attribut : exige seulement un utilisateur authentifie
+- l'annotation de methode est prioritaire ; sinon l'annotation de classe s'applique
+
+Classe `Authorization` (`com.sprint.framework.security`) :
+- constantes d'attributs de session : `authorization.principal`, `authorization.roles`, `authorization.permissions`
+- `login(session, principal, roles...)` / `login(session, principal, roles, permissions)` : cree l'utilisateur
+- `logout(session)` : supprime les donnees d'autorisation
+- `isAuthenticated`, `hasRole`, `hasPermission`, `isAllowed` : lecture des droits
+- `check(session, authorized)` : leve `AccessDeniedException`
+
+Integration framework :
+- `FrontController.authorize` : lit `@Authorized` sur la methode puis sur la classe et verifie la `MaSession`
+- `AccessDeniedException` (`authenticated = false`) : HTTP 401 (authentification requise)
+- `AccessDeniedException` (`authenticated = true`) : HTTP 403 (droits insuffisants)
+
+Realisation :
+- Creation de `com.sprint.framework.annotation.Authenticated` et `Authorized`
+- Creation de `com.sprint.framework.security.Authorization`
+- Creation de `com.sprint.framework.exception.AccessDeniedException`
+- `FrontController` : lecture de `auth.session-key` dans `init()`, controle d'authentification/autorisation avant l'instanciation du controleur, exposition des attributs `authenticated`/`principal`, reponses 401/403
+- `FrontControllerListener` : publication de la cle d'authentification dans le `ServletContext`
+- `web.xml` : `context-param` + `init-param` `auth.session-key`
+- Test-app : `POST /employe/login` attribue le role `admin` a l'utilisateur `admin`, sinon `user` ; `GET /employe/profil` est protegee par `@Authenticated` ; `GET /employe/admin` est protegee par `@Authorized(roles = "admin")` ; `GET /employe/logout` nettoie la session
+- Vues : `admin.jsp` + liens dans `profil.jsp`
+- Tests : `AuthorizationTest` (cle de session configuree, `@Authenticated`, attributs de requete, authentification, role de classe/methode, priorite methode, roles multiples, permissions, logout, roles separes par virgule) et `EmployeControllerTest` (role attribue au login, protection des actions profil/admin, logout)
+
+
+### Sprint 10 bis : Gestion des roles et singleton des controleurs
+Objectif : Verifier un role precis ou plusieurs roles avant l'execution, et reutiliser une seule instance de chaque controleur.
+
+Autorisation par role :
+- `@Authorized(roles = "PROF")` n'autorise que les utilisateurs possedant exactement ce role.
+- `@Authorized(roles = {"PROF", "ADMIN"})` autorise l'acces si l'utilisateur possede au moins un des roles listes.
+- Les roles sont lus depuis `MaSession` (`authorization.roles`) et compares au nom declare dans l'annotation.
+- Un utilisateur authentifie sans le role requis recoit HTTP 403 ; un utilisateur non authentifie recoit HTTP 401.
+
+Singleton des controleurs :
+- `ControllerRegistry` (`com.sprint.framework.mvc`) conserve une instance par classe de controleur dans une `Map<Class<?>, Object>`.
+- `getOrCreate(Class<?>)` verifie d'abord si l'instance existe ; sinon elle est creee puis memorisee.
+- `FrontControllerListener` publie le registre dans le `ServletContext` (`ControllerRegistry.ATTRIBUTE`).
+- `FrontController.init()` recupere le registre existant du contexte ; s'il est absent, il le cree et le publie.
+- `ProcessRequest` utilise `controllerRegistry().getOrCreate(controllerClass)` au lieu de `controllerClass.newInstance()`.
+
+Realisation :
+- Creation de `com.sprint.framework.mvc.ControllerRegistry`
+- `FrontController` : attribut `controllerRegistry`, initialisation dans `init()`, acces paresseux, reutilisation des instances
+- `FrontControllerListener` : publication du registre partage dans le `ServletContext`
+- Tests : `ControllerSingletonTest` (meme instance pour une classe, instances distinctes par classe, registre partage du `FrontController`) et `AuthorizationTest` (role `PROF`, role `ADMIN`, role inconnu refuse pour `@Authorized(roles = {"PROF", "ADMIN"})`)

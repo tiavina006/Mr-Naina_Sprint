@@ -61,3 +61,64 @@ La page affiche `Liste des employes`. Une URL sans mapping renvoie HTTP 404.
 Une methode non REST qui ne retourne pas `ModelAndView` provoque une `ServletException`. Une methode `@APIREST` n'utilise jamais `RequestDispatcher`.
 
 Le test automatisé se lance avec `mvn -pl test-app -am test`.
+## Upload de fichiers
+
+- Le formulaire utilise `enctype="multipart/form-data"` et un champ fichier.
+- Le servlet est annote `@MultipartConfig`; un parametre de type `MaFile` est injecte automatiquement.
+- `MaFile` expose `getFileName()`, `getFileType()`, `getData()`, `getSize()`, `save()` et `saveTo(directory)`.
+- Le repertoire par defaut vient du context-param `upload.path` (jamais code en dur).
+
+## Sessions
+
+- Un parametre de type `MaSession` est injecte dans la methode d'action.
+- `MaSession.set/get/remove/invalidate` remplace l'usage direct de `HttpSession`.
+- `SessionManager` conserve une session par client dans une `Map` du contexte et nettoie les sessions expirees (`session.timeout`).
+
+## Authentification
+
+- Annoter une methode (ou la classe du controleur) avec `@Authenticated` exige un utilisateur connecte.
+- Le nom de la variable de session qui prouve l'authentification est configure par `auth.session-key`, declare en `context-param` et en `init-param` dans `web.xml`.
+- `FrontController.init()` lit cette configuration depuis le `ServletContext` (valeur par defaut : `authorization.principal`).
+- Apres verification, le framework expose `authenticated=true` et `principal` en attributs de requete via `setAttribute`.
+- `Authorization.checkAuthenticated(session, cle)` leve `AccessDeniedException` (HTTP 401) si la variable de session est absente.
+
+## Autorisation
+
+- Annoter une methode (ou la classe du controleur) avec `@Authorized`.
+- `@Authorized(roles = "admin")` exige le role `admin`; `@Authorized(permissions = {"employe:write"})` exige la permission.
+- `@Authorized` sans attribut exige seulement un utilisateur authentifie.
+- Les droits sont stockes dans `MaSession` via `Authorization.login(session, principal, roles...)` et supprimes avec `Authorization.logout(session)`.
+- Le framework verifie les droits avant d'invoquer l'action : HTTP 401 si non authentifie, HTTP 403 si les droits sont insuffisants.
+- En cas de conflit, l'annotation de methode est prioritaire sur celle de la classe.
+
+Exemple :
+
+```java
+@GetMapping("/employe/admin")
+@Authorized(roles = "admin")
+public ModelAndView admin(MaSession session) {
+    return new ModelAndView("/WEB-INF/views/admin.jsp");
+}
+```
+
+## Roles multiples
+
+- Un seul role : `@Authorized(roles = "PROF")`.
+- Plusieurs roles : `@Authorized(roles = {"PROF", "ADMIN"})` ; l'acces est accorde si l'utilisateur possede au moins un de ces roles.
+- Le role est stocke dans `MaSession` (`authorization.roles`) par `Authorization.login(...)`.
+
+```java
+@GetMapping("/employe/enseigner")
+@Authorized(roles = {"PROF", "ADMIN"})
+public ModelAndView enseigner(MaSession session) {
+    return new ModelAndView("/WEB-INF/views/admin.jsp");
+}
+```
+
+## Singleton des controleurs
+
+- Le framework ne cree plus une instance de controleur a chaque requete.
+- `ControllerRegistry` conserve une instance par classe de controleur.
+- Le registre est stocke dans le `ServletContext` (`ControllerRegistry.ATTRIBUTE`) et partage entre les requetes.
+- `FrontController.init()` verifie d'abord si le registre existe dans le contexte ; sinon il le cree et le publie.
+- `ControllerRegistry.getOrCreate(Class<?>)` verifie si l'instance existe deja avant de l'instancier.

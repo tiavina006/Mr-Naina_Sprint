@@ -1,3 +1,12 @@
-com\sprint\framework\FrontControllerBindingTest$Personne.class
 com\sprint\framework\FrontControllerBindingTest.class
+com\sprint\framework\AuthorizationTest.class
+com\sprint\framework\session\SessionManagerTest.class
 com\sprint\framework\FrontControllerBindingTest$DemoController.class
+com\sprint\framework\AuthorizationTest$MethodController.class
+com\sprint\framework\FrontControllerBindingTest$Personne.class
+com\sprint\framework\AuthorizationTest$OpenController.class
+com\sprint\framework\AuthorizationTest$ClassAdminController.class
+com\sprint\framework\session\MaSessionTest.class
+com\sprint\framework\file\MaFileTest.class
+com\sprint\framework\AuthorizationTest$MixedController.class
+com\sprint\framework\AuthorizationTest$AuthenticatedController.class

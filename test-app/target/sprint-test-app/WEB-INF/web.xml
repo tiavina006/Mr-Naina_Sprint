@@ -8,6 +8,18 @@
         <param-name>controller-package</param-name>
         <param-value>com.sprint.testapp.controller</param-value>
     </context-param>
+    <context-param>
+        <param-name>upload.path</param-name>
+        <param-value>D:/Sprint_Mr_Naina/uploads</param-value>
+    </context-param>
+    <context-param>
+        <param-name>session.timeout</param-name>
+        <param-value>1800</param-value>
+    </context-param>
+    <context-param>
+        <param-name>auth.session-key</param-name>
+        <param-value>utilisateur</param-value>
+    </context-param>
     <listener>
         <listener-class>com.sprint.framework.FrontControllerListener</listener-class>
     </listener>
@@ -17,6 +29,10 @@
         <init-param>
             <param-name>controller-package</param-name>
             <param-value>com.sprint.testapp.controller</param-value>
+        </init-param>
+        <init-param>
+            <param-name>auth.session-key</param-name>
+            <param-value>utilisateur</param-value>
         </init-param>
         <load-on-startup>1</load-on-startup>
     </servlet>
